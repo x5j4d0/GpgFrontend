@@ -21,11 +21,15 @@
 #   BUILD_TYPE=RelWithDebInfo   # or Release / Debug (default matches CI)
 #   STATIC_GPGME=1              # self-contained static gpgme (like the release)
 #                              # default 0 = link Homebrew's gpgme (simpler)
+#   BUILD_MODE=release          # or nightly. release shares the "GpgFrontend"
+#                              # profile with official builds; nightly gets a
+#                              # separate "GpgFrontendTesting" profile and name
 #
 set -euo pipefail
 
 BUILD_TYPE="${BUILD_TYPE:-RelWithDebInfo}"
 STATIC_GPGME="${STATIC_GPGME:-0}"
+BUILD_MODE="${BUILD_MODE:-release}"
 JOBS="$(sysctl -n hw.logicalcpu)"
 
 log() { printf '\033[1;34m==>\033[0m %s\n' "$*"; }
@@ -48,7 +52,7 @@ xcodebuild -version >/dev/null 2>&1 || die "Full Xcode.app not found (the CLI to
 REQUIRED_FORMULAE=(
   cmake ninja ccache pkg-config
   autoconf automake libtool texinfo gettext
-  qt libarchive libsodium googletest gnupg gpgme
+  qt libarchive libsodium googletest gnupg gpgme openssl@3
 )
 MISSING_FORMULAE=""
 for f in "${REQUIRED_FORMULAE[@]}"; do
@@ -63,6 +67,7 @@ else
 fi
 
 QT_PREFIX="$(brew --prefix qt)"
+OPENSSL_PREFIX="$(brew --prefix openssl@3)"
 export CMAKE_PREFIX_PATH="${QT_PREFIX}${CMAKE_PREFIX_PATH:+:$CMAKE_PREFIX_PATH}"
 
 # --- 2. Rust toolchain (needed by corrosion for the rPGP backend) ------------
@@ -87,6 +92,12 @@ CMAKE_ARGS=(
   -B build -G Xcode
   -DCMAKE_BUILD_TYPE="${BUILD_TYPE}"
   -DCMAKE_PREFIX_PATH="${QT_PREFIX}"
+  -DOPENSSL_ROOT_DIR="${OPENSSL_PREFIX}"
+  # "installed" = normal /Applications app with data in the usual user
+  # locations; deliberately not "sandbox" (that flavor moves key databases
+  # into the app container and drops GnuPG/gpg-agent integration).
+  -DGPGFRONTEND_BUILD_FLAVOR=installed
+  -DGPGFRONTEND_BUILD_MODE="${BUILD_MODE}"
 )
 if [[ "${STATIC_GPGME}" == "1" ]]; then
   # This flag => third_party/CMakeLists.txt ExternalProject builds
@@ -105,15 +116,13 @@ cmake "${CMAKE_ARGS[@]}"
 # here (the earlier -DCMAKE_BUILD_TYPE feeds the vendored autotools/corrosion
 # sub-builds, which aren't multi-config aware).
 #
-# The trailing xcodebuild settings force ad-hoc/no signing. Upstream's
-# src/CMakeLists.txt declares GPGFRONTEND_XCODE_TEAM_ID / _CODE_SIGN_IDENTITY
-# via CMake's option() with non-boolean string defaults ("NONE") -- option()
-# only understands ON/OFF, so both silently collapse to OFF, and Xcode then
-# tries (and fails) to sign with team/identity "OFF". Overriding here avoids
-# patching that upstream bug just to get a local unsigned build running.
+# The trailing xcodebuild settings disable signing, mirroring upstream CI's
+# unsigned build job: src/CMakeLists.txt bakes a team, identity and profile
+# specifier into the project, and Xcode would otherwise try to resolve them.
 log "Building with ${JOBS} parallel jobs (first build is slow — Qt + Rust + gpgme)"
 cmake --build build --config "${BUILD_TYPE}" --parallel "${JOBS}" -- \
-  CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO CODE_SIGN_IDENTITY=""
+  CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO CODE_SIGN_IDENTITY="" \
+  DEVELOPMENT_TEAM="" PROVISIONING_PROFILE_SPECIFIER=""
 
 # --- 6. Locate the app bundle -------------------------------------------------
 APP="$(find build -maxdepth 4 -name 'GpgFrontend.app' -type d | head -n1 || true)"
