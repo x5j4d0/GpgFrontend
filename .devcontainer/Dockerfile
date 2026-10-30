@@ -1,6 +1,7 @@
 FROM mcr.microsoft.com/devcontainers/cpp:1-debian-12
 
-ARG REINSTALL_CMAKE_VERSION_FROM_SOURCE="3.22.2"
+# ARG REINSTALL_CMAKE_VERSION_FROM_SOURCE="3.22.2"
+ARG REINSTALL_CMAKE_VERSION_FROM_SOURCE="none"
 
 # Optionally install the cmake for vcpkg
 COPY ./reinstall-cmake.sh /tmp/
@@ -31,6 +32,10 @@ RUN apt-get update && \
     libgpgme-dev \
     qt6-base-dev \
     qt6-tools-dev \
-    clangd \ 
+    libxkbcommon-dev \
+    libxkbcommon-x11-dev \
+    libsodium-dev \
+    clangd \
+  && apt-get clean \
   && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
