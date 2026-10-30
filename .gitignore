@@ -28,7 +28,36 @@ docs/
 # Claude Code/Ai
 .claude
 .claude/**
-CONTEXT.md
+CLAUDE.md
+CLAUDE.local.md
+CONTEXT*.md
+AGENTS.md
+GEMINI.md
+.mcp.json
+
+# AI chat sessions, transcripts and exports
+*.jsonl
+*transcript*
+*.chat.md
+chat-history/
+claude-session*/
+.specstory/
+.aider*
+.cursor/
+.codex/
+.gemini/
+.continue/
+.windsurf/
+.copilot/
+
+# Secrets (real values live in 1Password; only templates are committed)
+.env
+.env.*
+!.env.tpl
+
+# Editor local history
+.history/
+
 
 # C++
 
@@ -87,8 +116,6 @@ compile_commands.json
 CTestTestfile.cmake
 _deps
 
-# History
-.history/**
 
 # Qt
 
