@@ -130,14 +130,95 @@ APP="$(find build -maxdepth 4 -name 'GpgFrontend.app' -type d | head -n1 || true
 
 log "Built: ${APP}"
 
-# --- 7. Bundle Qt so it runs standalone --------------------------------------
-# Without this the .app can't find Qt frameworks unless launched from a shell
-# that has Qt on the library path. macdeployqt copies them in.
-if [[ -x "${QT_PREFIX}/bin/macdeployqt" ]]; then
-  log "Deploying Qt frameworks into the bundle (macdeployqt)..."
-  "${QT_PREFIX}/bin/macdeployqt" "${APP}" -verbose=1 || \
-    log "macdeployqt reported issues — the app may still run from this shell. See hints."
-fi
+# --- 7. Stage the modules ----------------------------------------------------
+# Mirrors upstream CI (.github/workflows/build.yml, macOS module steps). The
+# build leaves each module native as a symlink into Xcode's output; cmake
+# --install would copy the link, not the file, so materialize them first.
+MODULE_ROOT="build/staging/lib/gpgfrontend/modules"
+EXPECTED_MODULES="$(scripts/build_info.sh build module_count)"
+log "Staging ${EXPECTED_MODULES} modules (cmake --install, runtime component)"
+while IFS= read -r link; do
+  cp -L "$link" "$link.real" && mv -f "$link.real" "$link"
+done < <(find build/artifacts/modules -type l)
+rm -rf build/staging
+cmake --install build --config "${BUILD_TYPE}" --component runtime \
+  --prefix build/staging
+[[ -d "${MODULE_ROOT}" ]] || die "No module tree at ${MODULE_ROOT} after install."
+
+# Homebrew's Qt links by absolute path (<brew>/opt/qtbase/lib/QtCore.framework/
+# ...), where CI's Qt links via @rpath. Upstream's dependency bundler only skips
+# @rpath/system references, so with Homebrew Qt it would copy a loose second
+# QtCore next to every module -- two Qt instances in one process. Point the
+# modules at @rpath instead, as CI's Qt does; the module rpath @loader_path/../..
+# resolves to Contents/Frameworks, where macdeployqt puts the app's one Qt.
+log "Normalizing module Qt references to @rpath (Homebrew Qt)"
+while IFS= read -r native; do
+  rewrote=0
+  while IFS= read -r dep; do
+    case "${dep}" in
+      @*) continue ;;
+      */Qt*.framework/*)
+        install_name_tool -change "${dep}" "@rpath/${dep#*/lib/}" "${native}"
+        rewrote=1 ;;
+    esac
+  done < <(otool -L "${native}" | tail -n +2 | sed 's/^[[:space:]]*//;s/ (compatibility.*//')
+  if [[ "${rewrote}" -eq 1 ]]; then
+    codesign --force --sign - "${native}" >/dev/null 2>&1
+  fi
+done < <(find "${MODULE_ROOT}" -path '*/native/*' -type f -name '*.dylib')
+
+# Pull each module's remaining private Homebrew deps (e.g. OpenSSL for m_email)
+# into its own namespace so the bundle never depends on Homebrew at runtime.
+scripts/bundle_macos_module_deps.sh --namespace-root "${MODULE_ROOT}"
+
+# --- 8. Place the modules in the bundle ---------------------------------------
+# Descriptors go under Resources, executable code under Frameworks.
+DESC_ROOT="${APP}/Contents/Resources/modules"
+NATIVE_ROOT="${APP}/Contents/Frameworks/GpgFrontendModules"
+rm -rf "${DESC_ROOT}" "${NATIVE_ROOT}"
+mkdir -p "${DESC_ROOT}" "${NATIVE_ROOT}"
+placed=0
+for ns in "${MODULE_ROOT}"/*/; do
+  key="$(basename "$ns")"
+  [[ -f "$ns/module.gfmodule" ]] || continue
+  mkdir -p "${DESC_ROOT}/${key}" "${NATIVE_ROOT}/${key}"
+  cp "$ns/module.gfmodule" "${DESC_ROOT}/${key}/"
+  cp "$ns"native/*.dylib "${NATIVE_ROOT}/${key}/"
+  placed=$((placed + 1))
+done
+[[ "${placed}" -eq "${EXPECTED_MODULES}" ]] || \
+  die "Placed ${placed} modules, expected ${EXPECTED_MODULES}."
+log "Placed ${placed} modules in the bundle."
+
+# --- 9. Bundle Qt so it runs standalone --------------------------------------
+# Each module native is passed explicitly: modules use Qt frameworks the app
+# itself doesn't (QtConcurrent, QtXml), and macdeployqt only deploys what the
+# binaries it is told about link against.
+EXECUTABLES=()
+while IFS= read -r native; do
+  EXECUTABLES+=("-executable=${native}")
+done < <(find "${NATIVE_ROOT}" -type f -name '*.dylib' | sort)
+log "Deploying Qt frameworks into the bundle (macdeployqt, ${#EXECUTABLES[@]} module natives)..."
+"${QT_PREFIX}/bin/macdeployqt" "${APP}" -verbose=1 -always-overwrite \
+  -libpath="${QT_PREFIX}/lib" \
+  "${EXECUTABLES[@]}"
+
+# --- 10. Verify the modules would actually load -------------------------------
+log "Verifying bundled modules (upstream's verify_macos_bundle_modules.sh)"
+scripts/verify_macos_bundle_modules.sh \
+  --app "${APP}" \
+  --namespace-root "${MODULE_ROOT}" \
+  --packager "$(scripts/build_info.sh build module_packager)" \
+  --expect-count "${EXPECTED_MODULES}"
+
+# --- 11. Ad-hoc seal ----------------------------------------------------------
+# Not identity signing: Apple Silicon refuses to run any Mach-O without at
+# least an ad-hoc signature, and install_name_tool/macdeployqt invalidate the
+# ones the linker wrote. "-" signs with no certificate, trusted by no one but
+# this machine.
+log "Re-sealing the bundle with an ad-hoc signature"
+codesign --force --deep --sign - "${APP}"
+codesign --verify --deep --strict "${APP}"
 
 cat <<EOF
 
