@@ -25,6 +25,10 @@ docs/
 # Clangd
 .cache/
 
+# Claude Code/Ai
+.claude
+.claude/**
+CONTEXT.md
 
 # C++
 
@@ -61,10 +65,6 @@ docs/
 *.out
 *.app
 
-
-
-
-
 # CMake
 
 # CLion
@@ -87,8 +87,8 @@ compile_commands.json
 CTestTestfile.cmake
 _deps
 
-
-
+# History
+.history/**
 
 # Qt
 
