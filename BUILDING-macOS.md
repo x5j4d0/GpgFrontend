@@ -162,12 +162,19 @@ APP=build/RelWithDebInfo/RelWithDebInfo/GpgFrontend.app
 # Install: quit GpgFrontend first, keep the previous copy as a rollback
 mv /Applications/GpgFrontend.app ~/GpgFrontend-previous.app
 ditto "$APP" /Applications/GpgFrontend.app
+
+# Refresh macOS's app registry: forget the build-folder copy, re-read the new
+# install. Every copy shares one bundle ID, so otherwise launches by name can
+# pick the wrong one or a stale entry.
+LSREGISTER=/System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/LaunchServices.framework/Versions/A/Support/lsregister
+"$LSREGISTER" -u "$APP"
+"$LSREGISTER" -f /Applications/GpgFrontend.app
 ```
 
-Quit the app, and don't click its Dock icon, while installing. During the
-`mv` / `ditto` window the bundle is missing or half-copied, and macOS reports
-"The application GpgFrontend.app can't be opened". Launching again after the
-copy finishes works.
+Quit the app before installing. If a launch right after the swap reports
+"The application GpgFrontend.app can't be opened" (with a generic Finder
+icon), it hit LaunchServices' stale record of the old bundle. Run the
+`lsregister` lines above, or just launch again a few seconds later.
 
 ## Version shown in the app
 
