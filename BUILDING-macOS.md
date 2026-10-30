@@ -169,6 +169,22 @@ Quit the app, and don't click its Dock icon, while installing. During the
 "The application GpgFrontend.app can't be opened". Launching again after the
 copy finishes works.
 
+## Version shown in the app
+
+The About dialog and `GpgFrontend -v` report the **upstream** commit this fork
+is based on, not the fork's own `HEAD`. For example:
+
+```text
+Git Branch: v2.2.4-8-gb9023dc0
+Source Code Information: upstream_v2.2.4-8-gb9023dc0
+```
+
+That reads as "upstream release v2.2.4, plus 8 upstream commits, at
+`b9023dc0`". This needs an `upstream` remote and a recent `git fetch
+upstream`. Without one, the app reports the fork's `HEAD` as usual. Set
+`-DGPGFRONTEND_UPSTREAM_REF=` (empty) to always report `HEAD`. The internal
+build ID, which module verification relies on, always uses the real `HEAD`.
+
 ## Your data
 
 - **Keys** live in `~/.gnupg`, owned by GnuPG. GpgFrontend also keeps its

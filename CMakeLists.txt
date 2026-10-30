@@ -633,6 +633,38 @@ configure_file(
   "${CMAKE_SOURCE_DIR}/cmake/ModuleHostPolicyGenerated.cpp.in"
   "${GF_MODULE_HOST_POLICY_SOURCE}" @ONLY)
 
+# Fork (x5j4d0/GpgFrontend): report the upstream commit this tree is based on
+# in the user-visible version info (About dialog, -v), so a fork build reads
+# as the upstream release it tracks. Only the displayed values change: the
+# build identity above was already computed from the real HEAD. Falls back to
+# HEAD when the ref is absent (e.g. a clone without an "upstream" remote).
+set(GPGFRONTEND_UPSTREAM_REF "upstream/main"
+  CACHE STRING "Upstream ref to report in version info; empty to report HEAD")
+if(GIT_FOUND AND GPGFRONTEND_UPSTREAM_REF)
+  execute_process(
+    COMMAND ${GIT_EXECUTABLE} merge-base HEAD ${GPGFRONTEND_UPSTREAM_REF}
+    OUTPUT_VARIABLE _gf_upstream_base
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    RESULT_VARIABLE _gf_upstream_rc
+    ERROR_QUIET
+    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+  )
+  if(_gf_upstream_rc EQUAL 0 AND _gf_upstream_base)
+    execute_process(
+      COMMAND ${GIT_EXECUTABLE} describe --tags --always ${_gf_upstream_base}
+      OUTPUT_VARIABLE _gf_upstream_describe
+      OUTPUT_STRIP_TRAILING_WHITESPACE
+      ERROR_QUIET
+      WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+    )
+    set(GIT_BRANCH_NAME "${_gf_upstream_describe}")
+    set(GIT_COMMIT_HASH "${_gf_upstream_base}")
+    string(TOLOWER "upstream_${_gf_upstream_describe}" GIT_VERSION)
+    message(STATUS "Reporting upstream base ${_gf_upstream_describe} "
+      "(${GPGFRONTEND_UPSTREAM_REF}) as source version")
+  endif()
+endif()
+
 # Set build information
 configure_file(${CMAKE_SOURCE_DIR}/src/GpgFrontend.h.in ${CMAKE_SOURCE_DIR}/src/GpgFrontend.h @ONLY)
 configure_file(${CMAKE_SOURCE_DIR}/src/GpgFrontendBuildInfo.h.in ${CMAKE_SOURCE_DIR}/src/GpgFrontendBuildInfo.h @ONLY)
